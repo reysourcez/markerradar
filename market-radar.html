@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<!-- Market Radar page v1.7.0 (2026-10-15). Single-screen app: all results render into #mr-results from one state object (no hidden panels).
+     Pairs with market-radar.js v1.7.0, market-radar-engine.js v1.7.0, market-radar-proxy-worker.js v1.7.0. Details: MARKET_RADAR_HANDOFF.md -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reysourcez Enterprise — Market Radar</title>
+  <meta name="description" content="Drop a pin in Miri, Kuching, Sibu or Bintulu and see which business is the best opportunity there, or what would complete the area — from open data, with the evidence shown.">
+
+  <link rel="icon" href="favicon.ico" sizes="32x32">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="site.webmanifest">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=16">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+
+  <style>
+    /* Page-only styles. Every site variable has a fallback so the page still works if styles.css changes. */
+    .mr-hide { display: none !important; }              /* the ONLY hiding mechanism: author CSS beats the [hidden] attribute */
+    .mr-app { --c-line: var(--line, #d5dcd8); --c-acc: var(--accent, #1F6F5C); --c-acc-d: var(--accent-dark, #14564a); --c-soft: var(--accent-soft, #e8f2ee); --c-mut: var(--muted, #5c6d64); --c-txt: var(--text, #1c2b25); --c-sur: var(--surface, #fff); --c-pap: var(--paper, #f6f8f6); }
+    .mr-ver { font-family: "IBM Plex Mono", monospace; font-size: .45em; font-weight: 500; color: var(--muted, #5c6d64); vertical-align: middle; margin-left: 8px; cursor: help; }
+
+    .mr-toolbar { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px 16px; align-items: end; margin-bottom: 10px; }
+    .mr-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .mr-field label, .mr-lbl { font-size: .82rem; font-weight: 600; color: var(--c-txt); }
+    .mr-hint { font-weight: 400; color: var(--c-mut); }
+    .mr-field select, .mr-field input[type=search], .mr-field input[type=text], .mr-inline input { padding: 9px 10px; border: 1px solid var(--c-line); border-radius: 8px; font: inherit; font-size: .92rem; background: var(--c-sur); color: var(--c-txt); min-width: 0; width: 100%; }
+    .mr-row { display: flex; gap: 8px; }
+    .mr-seg { display: flex; border: 1px solid var(--c-line); border-radius: 10px; overflow: hidden; background: var(--c-sur); }
+    .mr-seg-btn { flex: 1; padding: 8px 12px; border: 0; background: transparent; font: inherit; font-size: .92rem; font-weight: 600; text-align: left; cursor: pointer; line-height: 1.2; color: var(--c-txt); }
+    .mr-seg-btn small { display: block; font-size: .72rem; font-weight: 500; color: var(--c-mut); }
+    .mr-seg-btn + .mr-seg-btn { border-left: 1px solid var(--c-line); }
+    .mr-seg-btn.is-on { background: var(--c-acc); color: #fff; }
+    .mr-seg-btn.is-on small { color: #e3f1ec; }
+    .mr-go { flex-direction: row; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .mr-quota { font-size: .78rem; color: var(--c-mut); }
+    .mr-field select:focus-visible, .mr-field input:focus-visible, .mr-seg-btn:focus-visible, .mr-tab:focus-visible, .mr-link:focus-visible, .mr-inline input:focus-visible { outline: 3px solid var(--c-acc); outline-offset: 1px; }
+
+    .mr-custom { margin: 0 0 8px; font-size: .88rem; }
+    .mr-link { background: none; border: 0; padding: 2px 0; font: inherit; color: var(--c-acc-d); text-decoration: underline; cursor: pointer; }
+    .mr-inline { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+    .mr-inline input { width: 150px; }
+    .mr-tagchip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1px solid var(--c-line); border-radius: 999px; background: var(--c-pap); font-size: .8rem; }
+    .mr-tagchip button { border: 0; background: none; cursor: pointer; color: var(--c-mut); font-size: .9rem; padding: 0 6px; }
+    .mr-status { min-height: 1.4em; font-size: .9rem; color: var(--c-mut); margin: 6px 0 10px; }
+    .mr-status.is-error { color: #B3321F; font-weight: 600; }
+
+    .mr-layout { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+    @media (min-width: 1000px) { .mr-layout { grid-template-columns: minmax(360px, 5fr) minmax(0, 6fr); } .mr-map-col { position: sticky; top: 12px; align-self: start; } }
+    #mr-map { height: clamp(300px, 54vh, 580px); width: 100%; border-radius: 12px; border: 1px solid var(--c-line); z-index: 1; }
+    .mr-layers { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px 2px 2px; font-size: .8rem; color: var(--c-mut); }
+    .mr-layers label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+    .mr-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+    .mr-pinrow { font-size: .82rem; color: var(--c-mut); padding: 6px 2px; }
+    .mr-pinrow strong { font-family: "IBM Plex Mono", monospace; color: var(--c-txt); }
+
+    .mr-results { min-width: 0; }
+    .mr-empty { border: 2px dashed var(--c-line); border-radius: 14px; padding: 22px 20px; background: var(--c-pap); }
+    .mr-empty h3 { margin: 0 0 8px; font-family: var(--font-display, Georgia, serif); }
+    .mr-empty ol { margin: 8px 0 0 20px; padding: 0; line-height: 1.7; }
+    .mr-tabs { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--c-line); margin-bottom: 14px; }
+    .mr-tab { padding: 9px 14px; border: 0; background: none; font: inherit; font-size: .92rem; font-weight: 600; color: var(--c-mut); border-bottom: 3px solid transparent; cursor: pointer; white-space: nowrap; }
+    .mr-tab[aria-selected="true"] { color: var(--c-acc-d); border-bottom-color: var(--c-acc); }
+    .mr-note { border-radius: 10px; padding: 10px 12px; font-size: .85rem; line-height: 1.5; background: var(--c-soft); margin: 0 0 12px; }
+    .mr-note.warn { background: #fff3d9; }
+    .mr-note.bad { background: #fde6e1; }
+    .mr-h { font-family: var(--font-display, Georgia, serif); font-size: 1.05rem; margin: 16px 0 8px; }
+    .mr-sub { font-size: .84rem; color: var(--c-mut); margin: 0 0 12px; line-height: 1.5; }
+
+    .mr-card { border: 1px solid var(--c-line); border-radius: 12px; padding: 12px 14px; background: var(--c-sur); margin-bottom: 10px; }
+    .mr-card.is-top { border: 2px solid var(--c-acc); }
+    .mr-card.is-focus { box-shadow: 0 0 0 3px var(--c-soft); }
+    .mr-card-h { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .mr-rank { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--c-acc); color: #fff; font-weight: 700; font-size: .85rem; display: flex; align-items: center; justify-content: center; }
+    .mr-title { font-weight: 700; font-size: 1rem; }
+    .mr-grp { font-size: .74rem; color: var(--c-mut); }
+    .mr-score { margin-left: auto; text-align: right; min-width: 74px; font-family: var(--font-display, Georgia, serif); font-weight: 700; font-size: 1.25rem; color: var(--c-acc-d); line-height: 1; }
+    .mr-score small { display: block; font-family: var(--font-body, sans-serif); font-size: .66rem; font-weight: 500; color: var(--c-mut); }
+    .mr-meter { height: 7px; background: #e6ece8; border-radius: 6px; overflow: hidden; margin: 8px 0 6px; }
+    .mr-meter > i { display: block; height: 100%; background: var(--c-acc); }
+    .mr-why { margin: 6px 0 0; font-size: .88rem; line-height: 1.5; }
+    .mr-acts { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 8px; font-size: .84rem; }
+    .mr-ev { margin: 8px 0 0 18px; padding: 0; font-size: .84rem; line-height: 1.55; }
+    .mr-ev.verify { color: var(--c-mut); }
+    .mr-chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .mr-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: .74rem; font-weight: 700; border: 1px solid transparent; white-space: nowrap; }
+    .mr-chip.pioneer { background: #e0f3ec; color: #115243; border-color: #a5d5c5; }
+    .mr-chip.thin { background: #fff0cf; color: #6d4a00; border-color: #efd18a; }
+    .mr-chip.complementary { background: #e2edfb; color: #1b4a85; border-color: #b0cdf0; }
+    .mr-chip.niche { background: #efe5fa; color: #55308a; border-color: #cfb8ec; }
+    .mr-chip.emerging { background: #e6f5d8; color: #2f5d0f; border-color: #bfe0a3; }
+    .mr-chip.proven { background: #e9edf0; color: #38474f; border-color: #c4ced4; }
+    .mr-chip.unverified { background: #fff; color: #5b5b5b; border: 1px dashed #9a9a9a; }
+    .mr-chip.saturated { background: #fbe3df; color: #8a2417; border-color: #efb4ab; }
+    .mr-chip.gap { background: #fbe3df; color: #8a2417; border-color: #efb4ab; }
+    .mr-chip.healthy { background: #e9edf0; color: #38474f; border-color: #c4ced4; }
+    .mr-chip.crowded { background: #f3dcd8; color: #6f1d12; border-color: #e3a89f; }
+    .mr-chip.cap { background: #fff; color: #5b5b5b; border-color: #c9d2cd; font-weight: 600; }
+    .mr-filter { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 12px; }
+    .mr-fbtn { border: 1px solid var(--c-line); background: var(--c-sur); border-radius: 999px; padding: 4px 11px; font: inherit; font-size: .8rem; cursor: pointer; color: var(--c-txt); }
+    .mr-fbtn[aria-pressed="true"] { background: var(--c-acc); border-color: var(--c-acc); color: #fff; }
+
+    .mr-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+    .mr-kpi { border: 1px solid var(--c-line); border-radius: 10px; padding: 10px 12px; background: var(--c-sur); }
+    .mr-kpi b { display: block; font-family: var(--font-display, Georgia, serif); font-size: 1.2rem; line-height: 1.2; }
+    .mr-kpi span { display: block; font-size: .74rem; color: var(--c-mut); margin-top: 2px; }
+    .mr-prov { display: block; font-size: .68rem; color: var(--c-mut); margin-top: 3px; }
+    .mr-table-wrap { overflow-x: auto; }
+    .mr-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+    .mr-table th, .mr-table td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--c-line); vertical-align: top; }
+    .mr-table th { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; color: var(--c-mut); }
+    .mr-picks { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; margin: 6px 0 12px; }
+    .mr-pick { display: flex; gap: 8px; align-items: center; padding: 6px 9px; border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-pap); font-size: .84rem; cursor: pointer; }
+    .mr-pick.is-on { border-color: var(--c-acc); background: var(--c-soft); font-weight: 600; }
+    .mr-banner { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; border: 3px solid var(--c-acc); background: var(--c-soft); border-radius: 12px; padding: 12px 16px; margin: 0 0 12px; }
+    .mr-banner .mr-big { font-family: var(--font-display, Georgia, serif); font-size: 2.2rem; font-weight: 700; color: var(--c-acc-d); line-height: 1; }
+    .mr-wts td input { width: 72px; text-align: right; padding: 5px 7px; border: 1px solid var(--c-line); border-radius: 6px; font-family: "IBM Plex Mono", monospace; }
+    .mr-ai { border: 1px solid var(--c-line); border-radius: 10px; padding: 12px 14px; background: var(--c-sur); font-size: .92rem; line-height: 1.55; margin-top: 8px; }
+    .mr-ai.is-empty { color: var(--c-mut); font-style: italic; }
+    .mr-foot { font-size: .74rem; color: var(--c-mut); margin: 18px 0 0; line-height: 1.55; }
+    .mr-foot a { color: inherit; }
+    .mr-anchor { background: none; border: 0; }
+    .mr-spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--c-line); border-top-color: var(--c-acc); border-radius: 50%; animation: mrspin 0.9s linear infinite; vertical-align: -2px; margin-right: 8px; }
+    @keyframes mrspin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .mr-spin { animation: none; } }
+    @media print {
+      .no-print { display: none !important; }
+      .mr-layout { display: block; }
+      .mr-map-col { position: static; margin-bottom: 14px; }
+      #mr-map { height: 300px; border: 0; }
+      .mr-card, .mr-kpi, .mr-table tr { break-inside: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+  <a href="#main" class="skip-link">Skip to content</a>
+
+  <header class="site-header">
+    <nav class="nav" aria-label="Primary">
+      <a href="index.html" class="brand">
+        <svg width="26" height="26" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="5" y="5" width="30" height="30" rx="7" fill="#1F6F5C"/>
+          <text x="20" y="29" font-family="Fraunces, Georgia, serif" font-size="20" font-weight="700" fill="#FFFFFF" text-anchor="middle">R</text>
+        </svg>
+        Reysourcez Enterprise
+      </a>
+      <ul class="nav-links">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="services.html">Services</a></li>
+        <li class="nav-dropdown">
+          <button type="button" class="nav-dropdown-toggle active" aria-expanded="false" aria-haspopup="true">Business Analysis <i class="nav-dropdown-caret" aria-hidden="true"></i></button>
+          <ul class="nav-dropdown-menu"><!-- populated by nav-config.js --></ul>
+        </li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main id="main">
+
+    <section class="calc-intro">
+      <div class="wrap">
+        <span class="eyebrow">Free tool &middot; open data &middot; evidence shown for every result</span>
+        <h1>Market Radar <small class="mr-ver" id="mr-ver" title="Page, engine and Worker versions are shown in the browser console">v1.7.0</small></h1>
+        <p class="lead">Drop a pin on a candidate spot. <strong>Market Analysis</strong> ranks which business is the best opportunity there — first-mover, complementary, niche, emerging — and <strong>Market Gap</strong> shows what would best complete the area. Built from OpenStreetMap, an optional Overture Maps cross-check and Malaysia's open data; never scraped.</p>
+      </div>
+    </section>
+
+    <section class="ica-panel mr-app" id="mr-app">
+      <div class="wrap">
+
+        <div class="mr-toolbar no-print">
+          <div class="mr-field">
+            <span class="mr-lbl" id="mr-mode-lbl">What do you want to know?</span>
+            <div class="mr-seg" role="radiogroup" aria-labelledby="mr-mode-lbl" id="mr-mode">
+              <button type="button" role="radio" class="mr-seg-btn is-on" aria-checked="true" data-mode="analysis">Market Analysis<small>Find my best opportunity</small></button>
+              <button type="button" role="radio" class="mr-seg-btn" aria-checked="false" data-mode="gap">Market Gap<small>What would complete this area</small></button>
+            </div>
+          </div>
+          <div class="mr-field"><label for="mr-town">Town</label><select id="mr-town"></select></div>
+          <div class="mr-field"><label for="mr-catchment">Area around the pin</label><select id="mr-catchment"></select></div>
+          <form class="mr-field" id="mr-find-form" role="search">
+            <label for="mr-find">Find a place <span class="mr-hint">(optional)</span></label>
+            <div class="mr-row"><input id="mr-find" type="search" placeholder="e.g. Miri Boulevard" autocomplete="off" maxlength="80"><button type="submit" class="btn">Find</button></div>
+          </form>
+          <div class="mr-field mr-go">
+            <button type="button" id="mr-analyze" class="btn btn-primary">Analyze this spot</button>
+            <button type="button" id="mr-print" class="btn btn-secondary">Save as PDF</button>
+            <span class="mr-quota" id="mr-quota"></span>
+          </div>
+        </div>
+
+        <div class="mr-custom no-print" id="mr-custom"></div>
+        <p class="mr-status" id="mr-status" role="status" aria-live="polite"></p>
+
+        <div class="mr-layout">
+          <div class="mr-map-col">
+            <div id="mr-map" role="application" aria-label="Map. Click to move the pin to a candidate spot."></div>
+            <div class="mr-layers no-print" id="mr-layers"></div>
+            <div class="mr-pinrow">Pin: <strong id="mr-pin">—</strong> &middot; click the map or drag the pin to test an exact shoplot.</div>
+          </div>
+          <div class="mr-results-col">
+            <div class="mr-results" id="mr-results" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <p class="mr-foot">
+          Business locations &copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a> (ODbL).
+          Optional cross-check layer: <a href="https://docs.overturemaps.org/attribution/" target="_blank" rel="noopener">Overture Maps Foundation</a> places (several open-data providers, incl. Meta, Microsoft and Foursquare; licences CDLA-Permissive-2.0, Apache-2.0 and CC0-1.0 depending on the source). Downloads that combine both sources contain OpenStreetMap data (ODbL): keep both credits if you share them.
+          District figures: DOSM via data.gov.my. Travel-time areas: OpenRouteService. Place search: Nominatim. Crowding thresholds and business-type relationships are labelled assumptions — see "How this is scored".
+        </p>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer no-print">
+    <div class="wrap">
+      <div class="footer-bottom">&copy; 2026 Reysourcez Enterprise. All rights reserved.</div>
+    </div>
+  </footer>
+
+  <script src="site-config.js?v=1" defer></script>
+  <script src="nav-config.js?v=1" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+  <script src="nav-dropdown.js?v=1" defer></script>
+  <script src="market-radar-engine.js?v=20261015a" defer></script>
+  <script src="market-radar.js?v=20261015a" defer></script>
+</body>
+</html>
